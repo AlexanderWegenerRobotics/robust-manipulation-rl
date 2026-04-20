@@ -98,6 +98,38 @@ class Simulation:
     @property
     def dt(self) -> float:
         return self.mj_model.opt.timestep * self.steps_per_action
+    
+    def set_object_pose(self, name: str, pos: np.ndarray, quat: np.ndarray = np.array([1, 0, 0, 0])):
+        """Set position and orientation of a named object in world space."""
+        body_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+        if body_id == -1:
+            raise ValueError(f"Body '{name}' not found in model")
+
+        joint_ids = [j for j in range(self.mj_model.njnt) if self.mj_model.jnt_bodyid[j] == body_id]
+
+        with self._lock:
+            if joint_ids and self.mj_model.jnt_type[joint_ids[0]] == mujoco.mjtJoint.mjJNT_FREE:
+                qadr = self.mj_model.jnt_qposadr[joint_ids[0]]
+                dadr = self.mj_model.jnt_dofadr[joint_ids[0]]
+                self.mj_data.qpos[qadr:qadr + 3] = pos
+                self.mj_data.qpos[qadr + 3:qadr + 7] = quat
+                self.mj_data.qvel[dadr:dadr + 6] = 0.0
+            else:
+                self.mj_model.body_pos[body_id]  = pos
+                self.mj_model.body_quat[body_id] = quat
+            mujoco.mj_forward(self.mj_model, self.mj_data)
+
+    def get_object_pose(self, name: str) -> tuple[np.ndarray, np.ndarray]:
+        """Return current world-space position and quaternion (wxyz) of a named object."""
+        body_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+        if body_id == -1:
+            raise ValueError(f"Body '{name}' not found in model")
+
+        with self._lock:
+            pos  = self.mj_data.xpos[body_id].copy()
+            quat = self.mj_data.xquat[body_id].copy()
+
+        return pos, quat
 
 
 if __name__ == '__main__':

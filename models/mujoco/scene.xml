@@ -1,5 +1,6 @@
 <mujoco model="fr3 scene">
   <include file="franka_fr3/fr3_with_hand.xml"/>
+  <include file="props/box_blue.xml"/>
 
   <statistic center="0.2 0 0.4" extent=".8"/>
 

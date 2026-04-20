@@ -25,3 +25,8 @@ rendering:
     elevation: -25
     distance: 1.8 
     lookat: [0.3, 0.0, 0.4]
+
+
+object:
+  name: "box"
+  pos: [0.5, 0.0, 0.0]
