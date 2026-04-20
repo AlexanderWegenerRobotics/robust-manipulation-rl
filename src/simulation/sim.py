@@ -69,8 +69,8 @@ class Simulation:
             self._target_pose = self.kinematics.forward_kinematics(self.q0)
         self.set_object_pose(self.obj_name, self.obj_start_pos, self.obj_start_quat)
 
-    def step(self, target_pose: Pose):
-        """Run steps_per_action physics steps, applying impedance torques toward target_pose."""
+    def step(self, target_pose: Pose, grasp: int = 255):
+        """Run steps_per_action physics steps, applying impedance torques and gripper command."""
         self._target_pose = target_pose
 
         for _ in range(self.steps_per_action):
@@ -80,6 +80,7 @@ class Simulation:
 
                 tau = self.controller.compute_control(q, qd, self._target_pose)
                 self.mj_data.ctrl[:ARM_DOF] = tau
+                self.mj_data.ctrl[self._gripper_ctrl_idx] = grasp
 
                 mujoco.mj_step(self.mj_model, self.mj_data)
 

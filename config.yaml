@@ -26,6 +26,13 @@ control:
   tau_max:              [87, 87, 87, 87, 12, 12, 12]
   gravity_compensation: true
 
+action:
+  delta_bounds:     [-0.05, 0.05]
+  grasp_values:
+    open:           255
+    close:          0
+  fixed_quaternion: [0, 1, 0, 0]
+
 object:
   name:        box
   geom_name:   box_geom
