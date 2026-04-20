@@ -193,7 +193,7 @@
                            so the hand body sits at the flange with no
                            additional offset needed.
                            ══════════════════════════════════════════════ -->
-                      <body name="hand" childclass="panda" pos="0 0 0.107" quat="0 0 0 1">
+                      <body name="hand" childclass="panda" pos="0 0 0.107" quat="0.9239 0 0 -0.3827">
                         <inertial mass="0.73" pos="-0.01 0 0.03" diaginertia="0.001 0.0025 0.0017"/>
                         <geom mesh="hand_0" material="panda/off_white" class="panda/visual"/>
                         <geom mesh="hand_1" material="panda/black"     class="panda/visual"/>
