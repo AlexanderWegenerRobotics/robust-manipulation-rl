@@ -29,19 +29,33 @@ class RobotState:
 class Simulation:
     def __init__(self, config: str):
         self.config = config
-        self.mj_model = mujoco.MjModel.from_xml_path(self.config['scene_path'])
+        self.mj_model = mujoco.MjModel.from_xml_path(self.config['simulation']['scene_path'])
         self.mj_data  = mujoco.MjData(self.mj_model)
         self._lock    = threading.Lock()
 
-        self.steps_per_action = self.config['steps_per_action']
-        self.q0 = np.array(self.config['q0'])
+        self.steps_per_action = self.config['simulation']['steps_per_action']
+        self.q0 = np.array(self.config['simulation']['q0'])
 
         robot_cfg = self.config['robot']
         self.kinematics = RobotKinematics(urdf_path = robot_cfg['urdf_path'], ee_frame_name= robot_cfg['ee_frame_name'])
         self.controller = ImpedanceController(self.config['control'], self.kinematics)
 
+        self.obj_name = config["object"]["name"]
+        self.obj_start_pos, self.obj_start_quat = config["object"]["pos"], config["object"]["quat"]
+
         self._target_pose: Optional[Pose] = None
         self.reset()
+
+        grasp_cfg = self.config['grasp_detection']
+        self._left_finger_id  = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['contact_bodies'][0])
+        self._right_finger_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['contact_bodies'][1])
+        self._box_body_id     = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['object_body'])
+        self._grasp_width_min = grasp_cfg['width_min']
+        self._grasp_width_max = grasp_cfg['width_max']
+        
+        robot_cfg = self.config['robot']
+        self._finger_idx_left  = robot_cfg['finger_joints']['index_left']
+        self._finger_idx_right = robot_cfg['finger_joints']['index_right']
 
     def reset(self):
         """Reset simulation to initial joint configuration q0, zeroing all derivatives."""
@@ -53,6 +67,7 @@ class Simulation:
             self.mj_data.qfrc_applied[:]= 0.0
             mujoco.mj_forward(self.mj_model, self.mj_data)
             self._target_pose = self.kinematics.forward_kinematics(self.q0)
+        self.set_object_pose(self.obj_name, self.obj_start_pos, self.obj_start_quat)
 
     def step(self, target_pose: Pose):
         """Run steps_per_action physics steps, applying impedance torques toward target_pose."""
@@ -68,21 +83,45 @@ class Simulation:
 
                 mujoco.mj_step(self.mj_model, self.mj_data)
 
+    def _detect_contact(self) -> bool:
+        box_id = self._box_body_id
+        for i in range(self.mj_data.ncon):
+            c = self.mj_data.contact[i]
+            b1 = self.mj_model.geom_bodyid[c.geom1]
+            b2 = self.mj_model.geom_bodyid[c.geom2]
+            left_touch  = (b1 == self._left_finger_id  or b2 == self._left_finger_id)
+            right_touch = (b1 == self._right_finger_id or b2 == self._right_finger_id)
+            box_involved = (b1 == box_id or b2 == box_id)
+            if box_involved and (left_touch or right_touch):
+                return True
+        return False
+
     def get_obs(self) -> dict:
-        """Return current observation: joint state + EE pose as flat arrays."""
         with self._lock:
             q   = self.mj_data.qpos[:ARM_DOF].copy()
             qd  = self.mj_data.qvel[:ARM_DOF].copy()
             tau = self.mj_data.ctrl[:ARM_DOF].copy()
+            finger_l = self.mj_data.qpos[self._finger_idx_left]
+            finger_r = self.mj_data.qpos[self._finger_idx_right]
+            contact  = self._detect_contact()
 
-        ee_pose = self.kinematics.forward_kinematics(q)
+        ee_pose        = self.kinematics.forward_kinematics(q)
+        obj_pos, obj_quat = self.get_object_pose(self.obj_name)
+        gripper_width  = finger_l + finger_r
+        grasped        = contact and (self._grasp_width_min <= gripper_width <= self._grasp_width_max)
 
         return {
-            'q':       q,
-            'qd':      qd,
-            'tau':     tau,
-            'ee_pos':  ee_pose.position,
-            'ee_quat': ee_pose.quaternion,
+            'q':             q,
+            'qd':            qd,
+            'tau':           tau,
+            'ee_pos':        ee_pose.position,
+            'ee_quat':       ee_pose.quaternion,
+            'obj_pos':       obj_pos,
+            'obj_quat':      obj_quat,
+            'gripper_width': gripper_width,
+            'contact':       contact,
+            'grasped':       grasped,
+            'target_pos':    np.array(self.config['task']['target_pos']),
         }
 
     def get_state(self) -> RobotState:
@@ -138,9 +177,8 @@ if __name__ == '__main__':
     from src.runner import Runner
 
     print("Loading simulation...")
-    config     = load_yaml("config/global_config.yaml")
-    env_config = load_yaml(config["env_config"])
-    sim        = Simulation(env_config)
+    config     = load_yaml("config.yaml")
+    sim        = Simulation(config)
     print("Simulation loaded.")
 
     obs = sim.get_obs()
@@ -152,7 +190,7 @@ if __name__ == '__main__':
     )
     print(f"Target EE position: {target.position}")
 
-    renderer = make_renderer(sim, env_config.get('rendering', {}))
+    renderer = make_renderer(sim, config.get('rendering', {}))
     runner   = Runner(sim)
 
     print("Running episode...")
