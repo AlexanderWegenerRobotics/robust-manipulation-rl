@@ -3,7 +3,6 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 import numpy as np
-from pathlib import Path
 from stable_baselines3 import SAC
 
 from src.common.utils            import load_yaml
@@ -16,33 +15,46 @@ def run_inference(
     n_episodes:      int = 5,
 ):
     config = load_yaml(config_path)
-    env    = ManipulationEnv(config, log_dir=None, render_mode='human')
+    env    = ManipulationEnv(config, log_dir="logs/inference", render_mode='human')
     model  = SAC.load(checkpoint_path, env=env)
 
     print(f"Loaded checkpoint: {checkpoint_path}")
     print(f"Running {n_episodes} episodes...\n")
 
-    for ep in range(n_episodes):
-        obs, _     = env.reset()
-        done       = False
-        total_rew  = 0.0
-        step_count = 0
-        success    = False
+    ep = 0
+    try:
+        while ep < n_episodes:
+            obs, _     = env.reset()
+            done       = False
+            total_rew  = 0.0
+            step_count = 0
+            success    = False
 
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            env.render()
+            try:
+                while not done:
+                    action, _ = model.predict(obs, deterministic=True)
+                    obs, reward, terminated, truncated, info = env.step(action)
+                    env.render()
 
-            total_rew  += reward
-            step_count += 1
-            success     = bool(info.get('success', False))
-            done        = terminated or truncated
+                    total_rew  += reward
+                    step_count += 1
+                    success     = bool(info.get('success', False))
+                    done        = terminated or truncated
 
-        status = "SUCCESS" if success else "FAILED"
-        print(f"Episode {ep + 1:02d} | {status} | steps: {step_count:4d} | reward: {total_rew:8.2f}")
+            except KeyboardInterrupt:
+                print("\nInterrupted mid-episode — flushing current episode log.")
+                if env._logger:
+                    env._logger.save()
+                raise
 
-    env.close()
+            status = "SUCCESS" if success else "FAILED"
+            print(f"Episode {ep + 1:02d} | {status} | steps: {step_count:4d} | reward: {total_rew:8.2f}")
+            ep += 1
+
+    except KeyboardInterrupt:
+        print(f"Stopped after {ep} complete episodes.")
+    finally:
+        env.close()
 
 
 if __name__ == '__main__':

@@ -49,19 +49,20 @@ task:
   place_success_dist:  0.05
 
 reward:
-  k_reach:       5.0
-  w_grasp:       5.0
-  w_lift:        10.0
-  w_place:       20.0
-  w_place_bonus: 100.0
-  w_reg:         0.01
-  w_push_penalty: 5.0
+  k_reach:           5.0
+  w_grasp:           5.0
+  w_lift:            10.0
+  w_place:           20.0
+  w_place_bonus:     100.0
+  w_reg:             0.01
+  w_push_penalty:    5.0
+  w_premature_close: 2.0
 
 grasp_detection:
   contact_bodies:  [left_finger, right_finger]
   object_body:     box
-  width_min:       0.03
-  width_max:       0.075
+  width_min: 0.04
+  width_max: 0.075
 
 rendering:
   enabled:     true

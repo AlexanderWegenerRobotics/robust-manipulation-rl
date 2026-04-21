@@ -28,8 +28,8 @@ class ManipulationEnv(gym.Env):
         self._grasp_open  = action_cfg['grasp_values']['open']
         self._grasp_close = action_cfg['grasp_values']['close']
 
-        self._max_steps    = config['training']['max_episode_steps']
-        self._step_count   = 0
+        self._max_steps     = config['training']['max_episode_steps']
+        self._step_count    = 0
         self._obj_start_pos = np.array(config['object']['pos'], dtype=np.float32)
 
         self.action_space = spaces.Box(
@@ -90,13 +90,14 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
         info = {
-            'reach':   float(breakdown['reach']),
-            'grasp':   float(breakdown['grasp']),
-            'lift':    float(breakdown['lift']),
-            'place':   float(breakdown['place']),
-            'reg':     float(breakdown['reg']),
-            'push':    float(breakdown['push']),
-            'success': float(breakdown['success']),
+            'reach':     float(breakdown['reach']),
+            'grasp':     float(breakdown['grasp']),
+            'lift':      float(breakdown['lift']),
+            'place':     float(breakdown['place']),
+            'reg':       float(breakdown['reg']),
+            'push':      float(breakdown['push']),
+            'premature': float(breakdown['premature']),
+            'success':   float(breakdown['success']),
         }
 
         return self._flatten(obs), reward, terminated, truncated, info

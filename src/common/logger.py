@@ -19,19 +19,18 @@ class EpisodeLogger:
     def log_step(self, reward_breakdown: dict, obs: dict, action: np.ndarray):
         """Append one timestep of reward components, key obs fields, and action."""
         entries = {
-            'reward/reach':        reward_breakdown['reach'],
-            'reward/grasp':        reward_breakdown['grasp'],
-            'reward/lift':         reward_breakdown['lift'],
-            'reward/place':        reward_breakdown['place'],
-            'reward/reg':          reward_breakdown['reg'],
-            'reward/total':        reward_breakdown['total'],
-            'obs/ee_pos':          obs['ee_pos'],
-            'obs/obj_pos':         obs['obj_pos'],
-            'obs/gripper_width':   obs['gripper_width'],
-            'obs/grasped':         float(obs['grasped']),
-            'obs/contact':         float(obs['contact']),
-            'action':              action,
+            f'reward/{k}': v 
+            for k, v in reward_breakdown.items() 
+            if k != 'success'
         }
+        entries.update({
+            'obs/ee_pos':        obs['ee_pos'],
+            'obs/obj_pos':       obs['obj_pos'],
+            'obs/gripper_width': obs['gripper_width'],
+            'obs/grasped':       float(obs['grasped']),
+            'obs/contact':       float(obs['contact']),
+            'action':            action,
+        })
         for key, val in entries.items():
             self._buffer.setdefault(key, []).append(np.atleast_1d(np.array(val, dtype=np.float32)))
 

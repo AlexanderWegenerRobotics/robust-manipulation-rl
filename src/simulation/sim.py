@@ -110,7 +110,7 @@ class Simulation:
         ee_pose        = self.kinematics.forward_kinematics(q)
         obj_pos, obj_quat = self.get_object_pose(self.obj_name)
         gripper_width  = finger_l + finger_r
-        grasped        = contact and (self._grasp_width_min <= gripper_width <= self._grasp_width_max)
+        grasped = contact and (self._grasp_width_min <= gripper_width <= self._grasp_width_max)
 
         return {
             'q':             q,
