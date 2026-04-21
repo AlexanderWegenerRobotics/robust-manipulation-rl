@@ -1,0 +1,9 @@
+numpy
+scipy
+mujoco==3.7.0
+pinocchio
+gymnasium
+stable-baselines3[extra]
+h5py
+matplotlib
+pyyaml

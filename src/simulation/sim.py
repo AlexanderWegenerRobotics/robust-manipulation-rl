@@ -50,6 +50,7 @@ class Simulation:
         self._left_finger_id  = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['contact_bodies'][0])
         self._right_finger_id = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['contact_bodies'][1])
         self._box_body_id     = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, grasp_cfg['object_body'])
+        self._gripper_ctrl_idx = config['robot']['gripper']['ctrl_index']
         self._grasp_width_min = grasp_cfg['width_min']
         self._grasp_width_max = grasp_cfg['width_max']
         
