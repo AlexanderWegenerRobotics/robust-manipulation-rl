@@ -2,18 +2,23 @@ import numpy as np
 
 
 class RewardFunction:
-    """Potential-based shaped reward for pick-and-place.
+    """Hybrid shaped reward for pick-and-place.
 
-    r_t = gamma * Phi(s_{t+1}) - Phi(s_t) + r_success * 1[success] - w_reg * ||a||^2
+    r_t = gamma * Phi(s') - Phi(s)           # PBRS shaping
+        + grasp_dwell_payout                  # bounded flat dwell while grasped
+        + r_success * 1[success]              # sparse terminal bonus
+        - w_reg * ||a||^2                     # action regularisation
 
-    Phi is constructed so Phi(s) >= 0 everywhere reachable, by adding a constant
-    offset. This is required because with gamma < 1 the sitting-still shaping
-    reward equals (gamma - 1) * Phi(s); if Phi can go negative, the agent is
-    paid to camp in negative-Phi states. With Phi >= 0, (gamma - 1) * Phi <= 0
-    always, so sitting still is weakly penalised and progress is weakly rewarded.
+    PBRS (Ng/Harada/Russell 1999) gives optimal-policy-preserving shaping for the
+    reach/lift/place geometry, with Phi >= 0 so camping is weakly penalised.
 
-    Adding a constant to Phi is PBRS-invariant (Ng/Harada/Russell 1999), so the
-    optimal policy is preserved.
+    The grasp dwell is a flat +w_grasp_dwell per step while grasped, capped at
+    grasp_cap total per episode. This is NOT PBRS and does distort the optimal
+    policy's value function, but the cap bounds total dwell reward below the
+    success bonus so success remains the optimal terminal outcome. Its purpose
+    is to give SAC's critic a strong local signal on the grasp subgoal, which
+    pure PBRS failed to provide (dense signal was too weak for the critic to
+    commit to grasping in 1M steps).
     """
 
     def __init__(self, config: dict):
@@ -28,31 +33,41 @@ class RewardFunction:
         self.lift_target_h      = task_cfg['lift_target_h']
         self.obj_size_z         = config['object']['size'][2]
 
-        self.w_reach      = reward_cfg['w_reach']
-        self.w_lift       = reward_cfg['w_lift']
-        self.w_place      = reward_cfg['w_place']
-        self.w_grasp_jump = reward_cfg['w_grasp_jump']
-        self.r_success    = reward_cfg['r_success']
-        self.w_reg        = reward_cfg['w_reg']
-        self.phi_offset   = reward_cfg['phi_offset']
+        self.w_reach       = reward_cfg['w_reach']
+        self.w_lift        = reward_cfg['w_lift']
+        self.w_place       = reward_cfg['w_place']
+        self.w_grasp_jump  = reward_cfg['w_grasp_jump']
+        self.r_success     = reward_cfg['r_success']
+        self.w_reg         = reward_cfg['w_reg']
+        self.phi_offset    = reward_cfg['phi_offset']
+        self.w_grasp_dwell = reward_cfg['w_grasp_dwell']
+        self.grasp_cap     = reward_cfg['grasp_cap']
 
         self.gamma = float(train_cfg['gamma'])
 
-        self._prev_phi: float | None = None
+        self._prev_phi:           float | None = None
+        self._grasp_pay_remaining: float       = 0.0
 
     def reset(self, obs: dict):
-        """Initialise potential from first observation of an episode."""
-        self._prev_phi = self._potential(obs)
+        """Initialise potential and reset dwell budget at episode start."""
+        self._prev_phi            = self._potential(obs)
+        self._grasp_pay_remaining = self.grasp_cap
 
     def compute(self, obs: dict, action: np.ndarray) -> dict:
-        """Compute shaped reward r = gamma * Phi(s') - Phi(s) + success + reg."""
+        """Compute r = shape + dwell + success + reg, update episode state."""
         phi_next = self._potential(obs)
         phi_prev = self._prev_phi if self._prev_phi is not None else phi_next
 
         r_shape = self.gamma * phi_next - phi_prev
         r_reg   = -self.w_reg * float(np.dot(action, action))
 
-        grasped    = bool(obs['grasped'])
+        grasped = bool(obs['grasped'])
+        if grasped and self._grasp_pay_remaining > 0.0:
+            r_dwell                    = min(self.w_grasp_dwell, self._grasp_pay_remaining)
+            self._grasp_pay_remaining -= r_dwell
+        else:
+            r_dwell = 0.0
+
         place_dist = float(np.linalg.norm(obs['obj_pos'][:2] - self.target_pos[:2]))
         z_err      = abs(float(obs['obj_pos'][2]) - float(self.target_pos[2]))
         success    = (grasped
@@ -60,20 +75,22 @@ class RewardFunction:
                      and z_err < self.place_success_z)
 
         r_succ = self.r_success if success else 0.0
-        total  = r_shape + r_reg + r_succ
+        total  = r_shape + r_dwell + r_reg + r_succ
 
         self._prev_phi = phi_next
 
         return {
-            'phi':     float(phi_next),
-            'shape':   float(r_shape),
-            'reg':     float(r_reg),
+            'phi':           float(phi_next),
+            'shape':         float(r_shape),
+            'dwell':         float(r_dwell),
+            'dwell_remaining': float(self._grasp_pay_remaining),
+            'reg':           float(r_reg),
             'success_bonus': float(r_succ),
-            'total':   float(total),
-            'success': bool(success),
-            'place_dist': place_dist,
-            'obj_height': float(obs['obj_pos'][2] - self.table_height),
-            'grasped':    grasped,
+            'total':         float(total),
+            'success':       bool(success),
+            'place_dist':    place_dist,
+            'obj_height':    float(obs['obj_pos'][2] - self.table_height),
+            'grasped':       grasped,
         }
 
     def _potential(self, obs: dict) -> float:

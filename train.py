@@ -102,7 +102,7 @@ def train(config_path: str = "config.yaml"):
     )
 
     info_cb = InfoLoggingCallback(
-        keys      = ['phi', 'shape', 'reg', 'success_bonus',
+        keys      = ['phi', 'shape', 'dwell', 'dwell_remaining', 'reg', 'success_bonus',
                      'place_dist', 'obj_height', 'grasped', 'success'],
         log_every = 1000,
     )

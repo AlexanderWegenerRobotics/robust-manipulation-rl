@@ -45,7 +45,7 @@ class ManipulationEnv(gym.Env):
         )
 
     def reset(self, seed=None, options=None):
-        """Reset simulation, initialise reward potential, return initial obs."""
+        """Reset simulation, initialise reward potential and dwell budget."""
         super().reset(seed=seed)
         self._sim.reset()
         self._step_count = 0
@@ -89,15 +89,17 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
         info = {
-            'phi':           float(breakdown['phi']),
-            'shape':         float(breakdown['shape']),
-            'reg':           float(breakdown['reg']),
-            'success_bonus': float(breakdown['success_bonus']),
-            'place_dist':    float(breakdown['place_dist']),
-            'obj_height':    float(breakdown['obj_height']),
-            'grasped':       float(breakdown['grasped']),
-            'success':       float(breakdown['success']),
-            'is_success':    bool(breakdown['success']),
+            'phi':             float(breakdown['phi']),
+            'shape':           float(breakdown['shape']),
+            'dwell':           float(breakdown['dwell']),
+            'dwell_remaining': float(breakdown['dwell_remaining']),
+            'reg':             float(breakdown['reg']),
+            'success_bonus':   float(breakdown['success_bonus']),
+            'place_dist':      float(breakdown['place_dist']),
+            'obj_height':      float(breakdown['obj_height']),
+            'grasped':         float(breakdown['grasped']),
+            'success':         float(breakdown['success']),
+            'is_success':      bool(breakdown['success']),
         }
 
         return self._flatten(obs), reward, terminated, truncated, info

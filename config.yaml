@@ -49,13 +49,15 @@ task:
   lift_target_h:        0.05
 
 reward:
-  w_reach:       5.0
-  w_lift:       15.0
-  w_place:       5.0
-  w_grasp_jump:  2.5
-  r_success:   250.0
-  w_reg:         0.001
-  phi_offset:    8.0
+  w_reach:        5.0
+  w_lift:        15.0
+  w_place:        5.0
+  w_grasp_jump:   2.5
+  r_success:    250.0
+  w_reg:          0.001
+  phi_offset:     8.0
+  w_grasp_dwell:  0.5
+  grasp_cap:     50.0
 
 grasp_detection:
   contact_bodies:  [left_finger, right_finger]
