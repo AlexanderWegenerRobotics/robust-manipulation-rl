@@ -6,10 +6,14 @@ class RewardFunction:
 
     r_t = gamma * Phi(s_{t+1}) - Phi(s_t) + r_success * 1[success] - w_reg * ||a||^2
 
-    Phi is monotone in task progress: reaching, grasping, lifting, and moving
-    toward the target all increase it. By Ng/Harada/Russell (1999), this
-    preserves the optimal policy of the underlying MDP and cannot be camped on,
-    since total shaping over an episode telescopes to gamma^T * Phi(s_T) - Phi(s_0).
+    Phi is constructed so Phi(s) >= 0 everywhere reachable, by adding a constant
+    offset. This is required because with gamma < 1 the sitting-still shaping
+    reward equals (gamma - 1) * Phi(s); if Phi can go negative, the agent is
+    paid to camp in negative-Phi states. With Phi >= 0, (gamma - 1) * Phi <= 0
+    always, so sitting still is weakly penalised and progress is weakly rewarded.
+
+    Adding a constant to Phi is PBRS-invariant (Ng/Harada/Russell 1999), so the
+    optimal policy is preserved.
     """
 
     def __init__(self, config: dict):
@@ -30,6 +34,7 @@ class RewardFunction:
         self.w_grasp_jump = reward_cfg['w_grasp_jump']
         self.r_success    = reward_cfg['r_success']
         self.w_reg        = reward_cfg['w_reg']
+        self.phi_offset   = reward_cfg['phi_offset']
 
         self.gamma = float(train_cfg['gamma'])
 
@@ -72,7 +77,7 @@ class RewardFunction:
         }
 
     def _potential(self, obs: dict) -> float:
-        """Phi(s): monotone in task progress, maxed at success."""
+        """Phi(s): offset + reach + (grasped ? grasp_jump + lift - place : 0), >= 0."""
         ee_pos  = obs['ee_pos']
         obj_pos = obs['obj_pos']
         grasped = bool(obs['grasped'])
@@ -80,16 +85,13 @@ class RewardFunction:
         grasp_point = obj_pos + np.array([0.0, 0.0, -self.obj_size_z * 0.3])
         reach_dist  = float(np.linalg.norm(ee_pos - grasp_point))
 
-        phi_reach = -self.w_reach * reach_dist
+        phi = self.phi_offset - self.w_reach * reach_dist
 
-        if not grasped:
-            return phi_reach
+        if grasped:
+            obj_h      = float(obj_pos[2] - self.table_height)
+            lift_prog  = min(max(obj_h, 0.0), self.lift_target_h)
+            place_dist = float(np.linalg.norm(obj_pos[:2] - self.target_pos[:2]))
 
-        obj_h      = float(obj_pos[2] - self.table_height)
-        lift_prog  = min(max(obj_h, 0.0), self.lift_target_h)
-        place_dist = float(np.linalg.norm(obj_pos[:2] - self.target_pos[:2]))
+            phi += self.w_grasp_jump + self.w_lift * lift_prog - self.w_place * place_dist
 
-        phi_lift  = self.w_lift  * lift_prog
-        phi_place = -self.w_place * place_dist
-
-        return phi_reach + self.w_grasp_jump + phi_lift + phi_place
+        return phi
