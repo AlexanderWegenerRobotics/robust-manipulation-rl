@@ -20,6 +20,7 @@ class ManipulationEnv(gym.Env):
         self._reward_fn   = RewardFunction(config)
         self._logger      = EpisodeLogger(log_dir, prefix='train') if log_dir else None
         self._renderer    = None
+        self._stage       = config['training'].get('stage', 'full')
 
         action_cfg        = config['action']
         self._delta_low   = action_cfg['delta_bounds'][0]
@@ -45,7 +46,7 @@ class ManipulationEnv(gym.Env):
         )
 
     def reset(self, seed=None, options=None):
-        """Reset simulation, initialise reward potential and dwell budget."""
+        """Reset simulation and initialise reward state for a new episode."""
         super().reset(seed=seed)
         self._sim.reset()
         self._step_count = 0
@@ -59,7 +60,7 @@ class ManipulationEnv(gym.Env):
         return self._flatten(obs), {'TimeLimit.truncated': False}
 
     def step(self, action: np.ndarray):
-        """Apply action, step simulation, compute shaped reward, return gym tuple."""
+        """Apply one policy action, step simulation, and return the gym transition."""
         action      = np.clip(action, self.action_space.low, self.action_space.high)
         delta       = action[:3]
         grasp_norm  = float(action[3])
@@ -77,7 +78,7 @@ class ManipulationEnv(gym.Env):
         reward        = float(breakdown['total'])
 
         self._step_count += 1
-        terminated        = breakdown['success']
+        terminated        = bool(breakdown['success'])
         truncated         = self._step_count >= self._max_steps
 
         if self._logger:
@@ -89,23 +90,32 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
         info = {
-            'phi':             float(breakdown['phi']),
-            'shape':           float(breakdown['shape']),
-            'dwell':           float(breakdown['dwell']),
-            'dwell_remaining': float(breakdown['dwell_remaining']),
-            'reg':             float(breakdown['reg']),
-            'success_bonus':   float(breakdown['success_bonus']),
-            'place_dist':      float(breakdown['place_dist']),
-            'obj_height':      float(breakdown['obj_height']),
-            'grasped':         float(breakdown['grasped']),
-            'success':         float(breakdown['success']),
-            'is_success':      bool(breakdown['success']),
+            'stage':          self._stage,
+            'reach':          float(breakdown['reach']),
+            'grasp_bonus':    float(breakdown['grasp_bonus']),
+            'lift':           float(breakdown['lift']),
+            'place':          float(breakdown['place']),
+            'success_bonus':  float(breakdown['success_bonus']),
+            'drop_penalty':   float(breakdown['drop_penalty']),
+            'time':           float(breakdown['time']),
+            'action_penalty': float(breakdown['action_penalty']),
+            'reach_dist':     float(breakdown['reach_dist']),
+            'place_dist':     float(breakdown['place_dist']),
+            'obj_height':     float(breakdown['obj_height']),
+            'grasped':        float(breakdown['grasped']),
+            'new_grasp':      float(breakdown['new_grasp']),
+            'lost_grasp':     float(breakdown['lost_grasp']),
+            'reach_success':  float(breakdown['reach_success']),
+            'lift_success':   float(breakdown['lift_success']),
+            'place_success':  float(breakdown['place_success']),
+            'success':        float(breakdown['success']),
+            'is_success':     bool(breakdown['success']),
         }
 
         return self._flatten(obs), reward, terminated, truncated, info
 
     def render(self):
-        """Initialise renderer on first call and render current frame."""
+        """Initialise the renderer on demand and draw the current frame."""
         if self._renderer is None and self._render_mode == 'human':
             from src.simulation.rendering import make_renderer
             self._renderer = make_renderer(self._sim, self._config.get('rendering', {}))
@@ -113,13 +123,13 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
     def close(self):
-        """Clean up renderer if active."""
+        """Clean up active rendering resources."""
         if self._renderer is not None:
             self._renderer.close()
             self._renderer = None
 
     def _flatten(self, obs: dict) -> np.ndarray:
-        """Flatten obs dict into a fixed-length float32 vector for the policy."""
+        """Flatten dict observations into a fixed-length float32 policy vector."""
         return np.concatenate([
             obs['ee_pos'],
             obs['ee_quat'],
@@ -133,7 +143,7 @@ class ManipulationEnv(gym.Env):
         ]).astype(np.float32)
 
     def _obs_dim(self) -> int:
-        """Compute flat observation dimension from a live sim reset."""
+        """Compute the flattened observation dimension from a live reset."""
         self._sim.reset()
         obs = self._sim.get_obs()
         return self._flatten(obs).shape[0]

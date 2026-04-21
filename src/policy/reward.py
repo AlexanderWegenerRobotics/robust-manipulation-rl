@@ -2,113 +2,100 @@ import numpy as np
 
 
 class RewardFunction:
-    """Hybrid shaped reward for pick-and-place.
-
-    r_t = gamma * Phi(s') - Phi(s)           # PBRS shaping
-        + grasp_dwell_payout                  # bounded flat dwell while grasped
-        + r_success * 1[success]              # sparse terminal bonus
-        - w_reg * ||a||^2                     # action regularisation
-
-    PBRS (Ng/Harada/Russell 1999) gives optimal-policy-preserving shaping for the
-    reach/lift/place geometry, with Phi >= 0 so camping is weakly penalised.
-
-    The grasp dwell is a flat +w_grasp_dwell per step while grasped, capped at
-    grasp_cap total per episode. This is NOT PBRS and does distort the optimal
-    policy's value function, but the cap bounds total dwell reward below the
-    success bonus so success remains the optimal terminal outcome. Its purpose
-    is to give SAC's critic a strong local signal on the grasp subgoal, which
-    pure PBRS failed to provide (dense signal was too weak for the critic to
-    commit to grasping in 1M steps).
-    """
-
     def __init__(self, config: dict):
         task_cfg   = config['task']
         reward_cfg = config['reward']
         train_cfg  = config['training']
+        object_cfg = config['object']
 
+        self.stage              = train_cfg.get('stage', 'full')
         self.target_pos         = np.array(task_cfg['target_pos'], dtype=np.float32)
-        self.table_height       = task_cfg['table_height']
-        self.place_success_dist = task_cfg['place_success_dist']
-        self.place_success_z    = task_cfg['place_success_z_tol']
-        self.lift_target_h      = task_cfg['lift_target_h']
-        self.obj_size_z         = config['object']['size'][2]
+        self.table_height       = float(task_cfg['table_height'])
+        self.place_success_dist = float(task_cfg['place_success_dist'])
+        self.place_success_z    = float(task_cfg['place_success_z_tol'])
+        self.lift_target_h      = float(task_cfg['lift_target_h'])
+        self.obj_size_z         = float(object_cfg['size'][2])
 
-        self.w_reach       = reward_cfg['w_reach']
-        self.w_lift        = reward_cfg['w_lift']
-        self.w_place       = reward_cfg['w_place']
-        self.w_grasp_jump  = reward_cfg['w_grasp_jump']
-        self.r_success     = reward_cfg['r_success']
-        self.w_reg         = reward_cfg['w_reg']
-        self.phi_offset    = reward_cfg['phi_offset']
-        self.w_grasp_dwell = reward_cfg['w_grasp_dwell']
-        self.grasp_cap     = reward_cfg['grasp_cap']
+        self.reach_thresh       = float(reward_cfg.get('reach_success_dist', 0.03))
+        self.lift_thresh        = float(reward_cfg.get('lift_success_height', self.lift_target_h))
 
-        self.gamma = float(train_cfg['gamma'])
+        self.w_reach            = float(reward_cfg.get('w_reach', 1.0))
+        self.w_grasp_bonus      = float(reward_cfg.get('w_grasp_bonus', 10.0))
+        self.w_lift             = float(reward_cfg.get('w_lift', 4.0))
+        self.w_place            = float(reward_cfg.get('w_place', 3.0))
+        self.r_success          = float(reward_cfg.get('r_success', 50.0))
+        self.w_action           = float(reward_cfg.get('w_action', reward_cfg.get('w_reg', 1e-3)))
+        self.w_time             = float(reward_cfg.get('w_time', 0.01))
+        self.r_drop             = float(reward_cfg.get('r_drop', 0.0))
 
-        self._prev_phi:           float | None = None
-        self._grasp_pay_remaining: float       = 0.0
+        self._prev_grasped      = False
 
     def reset(self, obs: dict):
-        """Initialise potential and reset dwell budget at episode start."""
-        self._prev_phi            = self._potential(obs)
-        self._grasp_pay_remaining = self.grasp_cap
+        """Reset stage-local event memory at episode start."""
+        self._prev_grasped = bool(obs['grasped'])
 
     def compute(self, obs: dict, action: np.ndarray) -> dict:
-        """Compute r = shape + dwell + success + reg, update episode state."""
-        phi_next = self._potential(obs)
-        phi_prev = self._prev_phi if self._prev_phi is not None else phi_next
+        """Compute dense stage-based reward and task success signals."""
+        ee_pos       = obs['ee_pos']
+        obj_pos      = obs['obj_pos']
+        grasped      = bool(obs['grasped'])
+        new_grasp    = grasped and not self._prev_grasped
+        lost_grasp   = self._prev_grasped and not grasped
 
-        r_shape = self.gamma * phi_next - phi_prev
-        r_reg   = -self.w_reg * float(np.dot(action, action))
+        grasp_point  = obj_pos + np.array([0.0, 0.0, -self.obj_size_z * 0.3], dtype=np.float32)
+        reach_dist   = float(np.linalg.norm(ee_pos - grasp_point))
+        obj_height   = float(max(obj_pos[2] - self.table_height, 0.0))
+        place_dist   = float(np.linalg.norm(obj_pos[:2] - self.target_pos[:2]))
+        z_err        = abs(float(obj_pos[2]) - float(self.target_pos[2]))
 
-        grasped = bool(obs['grasped'])
-        if grasped and self._grasp_pay_remaining > 0.0:
-            r_dwell                    = min(self.w_grasp_dwell, self._grasp_pay_remaining)
-            self._grasp_pay_remaining -= r_dwell
+        r_reach      = -self.w_reach * reach_dist
+        r_grasp      = self.w_grasp_bonus if new_grasp else 0.0
+        r_lift       = 0.0
+        r_place      = 0.0
+        r_succ       = 0.0
+        r_drop       = -self.r_drop if lost_grasp and self.r_drop > 0.0 else 0.0
+        r_time       = -self.w_time
+        r_action     = -self.w_action * float(np.dot(action, action))
+
+        reach_success = reach_dist < self.reach_thresh
+        lift_success  = obj_height >= self.lift_thresh
+        place_success = grasped and place_dist < self.place_success_dist and z_err < self.place_success_z
+
+        if self.stage == 'reach_grasp':
+            success = grasped
+        elif self.stage == 'full':
+            if grasped:
+                r_lift = self.w_lift * min(obj_height, self.lift_target_h)
+                if obj_height >= self.lift_thresh:
+                    r_place = -self.w_place * place_dist
+            success = place_success
+            if success:
+                r_succ = self.r_success
         else:
-            r_dwell = 0.0
+            raise ValueError(f"Unsupported training stage '{self.stage}'")
 
-        place_dist = float(np.linalg.norm(obs['obj_pos'][:2] - self.target_pos[:2]))
-        z_err      = abs(float(obs['obj_pos'][2]) - float(self.target_pos[2]))
-        success    = (grasped
-                     and place_dist < self.place_success_dist
-                     and z_err < self.place_success_z)
+        total = r_reach + r_grasp + r_lift + r_place + r_succ + r_drop + r_time + r_action
 
-        r_succ = self.r_success if success else 0.0
-        total  = r_shape + r_dwell + r_reg + r_succ
-
-        self._prev_phi = phi_next
+        self._prev_grasped = grasped
 
         return {
-            'phi':           float(phi_next),
-            'shape':         float(r_shape),
-            'dwell':         float(r_dwell),
-            'dwell_remaining': float(self._grasp_pay_remaining),
-            'reg':           float(r_reg),
-            'success_bonus': float(r_succ),
             'total':         float(total),
-            'success':       bool(success),
-            'place_dist':    place_dist,
-            'obj_height':    float(obs['obj_pos'][2] - self.table_height),
+            'reach':         float(r_reach),
+            'grasp_bonus':   float(r_grasp),
+            'lift':          float(r_lift),
+            'place':         float(r_place),
+            'success_bonus': float(r_succ),
+            'drop_penalty':  float(r_drop),
+            'time':          float(r_time),
+            'action_penalty': float(r_action),
+            'reach_dist':    float(reach_dist),
+            'place_dist':    float(place_dist),
+            'obj_height':    float(obj_height),
             'grasped':       grasped,
+            'new_grasp':     bool(new_grasp),
+            'lost_grasp':    bool(lost_grasp),
+            'reach_success': bool(reach_success),
+            'lift_success':  bool(lift_success),
+            'place_success': bool(place_success),
+            'success':       bool(success),
         }
-
-    def _potential(self, obs: dict) -> float:
-        """Phi(s): offset + reach + (grasped ? grasp_jump + lift - place : 0), >= 0."""
-        ee_pos  = obs['ee_pos']
-        obj_pos = obs['obj_pos']
-        grasped = bool(obs['grasped'])
-
-        grasp_point = obj_pos + np.array([0.0, 0.0, -self.obj_size_z * 0.3])
-        reach_dist  = float(np.linalg.norm(ee_pos - grasp_point))
-
-        phi = self.phi_offset - self.w_reach * reach_dist
-
-        if grasped:
-            obj_h      = float(obj_pos[2] - self.table_height)
-            lift_prog  = min(max(obj_h, 0.0), self.lift_target_h)
-            place_dist = float(np.linalg.norm(obj_pos[:2] - self.target_pos[:2]))
-
-            phi += self.w_grasp_jump + self.w_lift * lift_prog - self.w_place * place_dist
-
-        return phi

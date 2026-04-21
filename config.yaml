@@ -20,7 +20,7 @@ robot:
 
 control:
   K_cart:               [800, 800, 800, 50, 50, 50]
-  D_cart:               [50,  50,  50,  5,  5,  5]
+  D_cart:               [50, 50, 50, 5, 5, 5]
   K_null:               10.0
   q_nominal:            [0, 0, 0, -1.5708, 0, 1.5708, -0.7854]
   tau_max:              [87, 87, 87, 87, 12, 12, 12]
@@ -42,28 +42,29 @@ object:
   quat:        [1, 0, 0, 0]
 
 task:
-  target_pos:           [0.4, 0.2, 0.035]
-  table_height:         0.0
-  place_success_dist:   0.08
-  place_success_z_tol:  0.05
-  lift_target_h:        0.05
+  target_pos:          [0.4, 0.2, 0.035]
+  table_height:        0.0
+  place_success_dist:  0.08
+  place_success_z_tol: 0.05
+  lift_target_h:       0.05
 
 reward:
-  w_reach:        5.0
-  w_lift:        15.0
-  w_place:        5.0
-  w_grasp_jump:   2.5
-  r_success:    250.0
-  w_reg:          0.001
-  phi_offset:     8.0
-  w_grasp_dwell:  0.5
-  grasp_cap:     50.0
+  w_reach:             3.0
+  w_grasp_bonus:       15.0
+  w_lift:              0.0
+  w_place:             0.0
+  r_success:           0.0
+  w_action:            0.001
+  w_time:              0.01
+  r_drop:              1.0
+  reach_success_dist:  0.03
+  lift_success_height: 0.05
 
 grasp_detection:
-  contact_bodies:  [left_finger, right_finger]
-  object_body:     box
-  width_min: 0.04
-  width_max: 0.065
+  contact_bodies: [left_finger, right_finger]
+  object_body:    box
+  width_min:      0.04
+  width_max:      0.065
 
 rendering:
   enabled:     true
@@ -78,15 +79,19 @@ rendering:
     lookat:    [0.3, 0.0, 0.4]
 
 training:
-  n_envs:            8
-  max_episode_steps: 300
-  total_timesteps:   1_000_000
-  batch_size:        256
-  buffer_size:       1_000_000
-  learning_rate:     3.0e-4
-  gamma:             0.99
-  tau:               0.005
-  train_freq:        1
-  gradient_steps:    1
-  learning_starts:   1000
-  seed:              42
+  stage:                    reach_grasp
+  n_envs:                   8
+  max_episode_steps:        300
+  total_timesteps:          100000
+  batch_size:               256
+  buffer_size:              1000000
+  learning_rate:            3.0e-4
+  gamma:                    0.99
+  tau:                      0.005
+  train_freq:               1
+  gradient_steps:           1
+  learning_starts:          1000
+  seed:                     42
+  resume_model_path:        null
+  resume_replay_buffer_path: null
+  reset_num_timesteps:      true
