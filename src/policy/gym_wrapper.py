@@ -28,9 +28,8 @@ class ManipulationEnv(gym.Env):
         self._grasp_open  = action_cfg['grasp_values']['open']
         self._grasp_close = action_cfg['grasp_values']['close']
 
-        self._max_steps     = config['training']['max_episode_steps']
-        self._step_count    = 0
-        self._obj_start_pos = np.array(config['object']['pos'], dtype=np.float32)
+        self._max_steps  = config['training']['max_episode_steps']
+        self._step_count = 0
 
         self.action_space = spaces.Box(
             low  = np.array([self._delta_low,  self._delta_low,  self._delta_low,  0.0], dtype=np.float32),
@@ -46,7 +45,7 @@ class ManipulationEnv(gym.Env):
         )
 
     def reset(self, seed=None, options=None):
-        """Reset simulation, record object start position, return initial obs."""
+        """Reset simulation, initialise reward potential, return initial obs."""
         super().reset(seed=seed)
         self._sim.reset()
         self._step_count = 0
@@ -55,12 +54,12 @@ class ManipulationEnv(gym.Env):
             self._logger.reset()
 
         obs = self._sim.get_obs()
-        self._obj_start_pos = obs['obj_pos'].copy()
+        self._reward_fn.reset(obs)
 
         return self._flatten(obs), {'TimeLimit.truncated': False}
 
     def step(self, action: np.ndarray):
-        """Apply action, step simulation, compute reward, return gym tuple."""
+        """Apply action, step simulation, compute shaped reward, return gym tuple."""
         action      = np.clip(action, self.action_space.low, self.action_space.high)
         delta       = action[:3]
         grasp_norm  = float(action[3])
@@ -74,7 +73,7 @@ class ManipulationEnv(gym.Env):
         obs         = self._sim.get_obs()
 
         logged_action = np.append(delta, grasp_norm)
-        breakdown     = self._reward_fn.compute(obs, logged_action, self._obj_start_pos)
+        breakdown     = self._reward_fn.compute(obs, logged_action)
         reward        = float(breakdown['total'])
 
         self._step_count += 1
@@ -90,14 +89,15 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
         info = {
-            'reach':     float(breakdown['reach']),
-            'grasp':     float(breakdown['grasp']),
-            'lift':      float(breakdown['lift']),
-            'place':     float(breakdown['place']),
-            'reg':       float(breakdown['reg']),
-            'push':      float(breakdown['push']),
-            'premature': float(breakdown['premature']),
-            'success':   float(breakdown['success']),
+            'phi':           float(breakdown['phi']),
+            'shape':         float(breakdown['shape']),
+            'reg':           float(breakdown['reg']),
+            'success_bonus': float(breakdown['success_bonus']),
+            'place_dist':    float(breakdown['place_dist']),
+            'obj_height':    float(breakdown['obj_height']),
+            'grasped':       float(breakdown['grasped']),
+            'success':       float(breakdown['success']),
+            'is_success':    bool(breakdown['success']),
         }
 
         return self._flatten(obs), reward, terminated, truncated, info

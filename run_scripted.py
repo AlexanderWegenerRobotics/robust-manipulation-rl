@@ -36,6 +36,7 @@ def run(config_path: str = "config.yaml"):
         obs                  = sim.get_obs()
         target_pose, grasp   = agent.act(obs, dt)
         action               = np.array([*(target_pose.position - obs['ee_pos']), float(grasp)])
+        action = np.clip(action, [-0.05, -0.05, -0.05, 0.0], [0.05, 0.05, 0.05, 1.0])
         reward_breakdown     = reward.compute(obs, action)
 
         logger.log_step(reward_breakdown, obs, action)
@@ -60,20 +61,47 @@ def run(config_path: str = "config.yaml"):
 
 
 def _plot(data: dict, log_path):
-    steps      = np.arange(data['reward/total'].shape[0])
-    components = ['reach', 'grasp', 'lift', 'place', 'reg', 'total']
-    colors     = ['steelblue', 'seagreen', 'darkorange', 'mediumpurple', 'salmon', 'black']
+    def series(key):
+        """Fetch a logged series by key, tolerating prefix variations."""
+        for candidate in (f'reward/{key}', key, f'info/{key}', f'obs/{key}'):
+            if candidate in data:
+                return np.asarray(data[candidate]).squeeze()
+        return None
 
-    fig, axes = plt.subplots(len(components), 1, figsize=(12, 10), sharex=True)
+    components = [
+        ('phi',           'steelblue'),
+        ('shape',         'seagreen'),
+        ('reg',           'salmon'),
+        ('success_bonus', 'gold'),
+        ('total',         'black'),
+    ]
+    extras = [
+        ('place_dist', 'mediumpurple'),
+        ('obj_height', 'darkorange'),
+        ('grasped',    'teal'),
+    ]
 
-    for ax, key, color in zip(axes, components, colors):
-        series = data[f'reward/{key}'].squeeze()
-        ax.plot(steps, series, color=color, linewidth=1.2)
+    available = [(k, c) for k, c in components + extras if series(k) is not None]
+    if not available:
+        print("No plottable series found in log.")
+        return
+
+    n_steps = series(available[0][0]).shape[0]
+    steps   = np.arange(n_steps)
+
+    fig, axes = plt.subplots(len(available), 1, figsize=(12, 1.6 * len(available)), sharex=True)
+    if len(available) == 1:
+        axes = [axes]
+
+    for ax, (key, color) in zip(axes, available):
+        s = series(key)
+        ax.plot(steps, s, color=color, linewidth=1.2)
         ax.set_ylabel(key, fontsize=9)
         ax.grid(True, alpha=0.3)
+        ax.axhline(0.0, color='gray', linewidth=0.5, alpha=0.5)
 
     axes[-1].set_xlabel('Step')
-    fig.suptitle('Scripted Agent — Reward Components', fontsize=11)
+    fig.suptitle('Scripted Agent — Reward and Task Progress', fontsize=11)
     plt.tight_layout()
 
     plot_path = Path(str(log_path).replace('.h5', '.png'))

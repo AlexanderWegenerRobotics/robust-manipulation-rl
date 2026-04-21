@@ -36,33 +36,31 @@ action:
 object:
   name:        box
   geom_name:   box_geom
-  size:        [0.035, 0.035, 0.035]
+  size:        [0.03, 0.03, 0.03]
   mass:        0.05
-  pos:         [0.5, -0.3, 0.035]
+  pos:         [0.5, -0.3, 0.03]
   quat:        [1, 0, 0, 0]
 
 task:
-  target_pos:          [0.4, 0.2, 0.035]
-  table_height:        0.0
-  lift_margin:         0.05
-  reach_gate_dist:     0.05
-  place_success_dist:  0.05
+  target_pos:           [0.4, 0.2, 0.035]
+  table_height:         0.0
+  place_success_dist:   0.05
+  place_success_z_tol:  0.03
+  lift_target_h:        0.05
 
 reward:
-  k_reach:           5.0
-  w_grasp:           5.0
-  w_lift:            10.0
-  w_place:           20.0
-  w_place_bonus:     100.0
-  w_reg:             0.01
-  w_push_penalty:    5.0
-  w_premature_close: 2.0
+  w_reach:       1.0
+  w_lift:        3.0
+  w_place:       1.0
+  w_grasp_jump:  0.5
+  r_success:     50.0
+  w_reg:         0.001
 
 grasp_detection:
   contact_bodies:  [left_finger, right_finger]
   object_body:     box
   width_min: 0.04
-  width_max: 0.075
+  width_max: 0.065
 
 rendering:
   enabled:     true
@@ -77,15 +75,15 @@ rendering:
     lookat:    [0.3, 0.0, 0.4]
 
 training:
-  n_envs:           8
+  n_envs:            8
   max_episode_steps: 500
-  total_timesteps:  1_000_000
-  batch_size:       256
-  buffer_size:      1_000_000
-  learning_rate:    3.0e-4
-  gamma:            0.99
-  tau:              0.005
-  train_freq:       1
-  gradient_steps:   1
-  learning_starts:  1000
-  seed:             42
+  total_timesteps:   1_000_000
+  batch_size:        256
+  buffer_size:       1_000_000
+  learning_rate:     3.0e-4
+  gamma:             0.99
+  tau:               0.005
+  train_freq:        1
+  gradient_steps:    1
+  learning_starts:   1000
+  seed:              42
