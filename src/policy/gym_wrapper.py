@@ -28,8 +28,9 @@ class ManipulationEnv(gym.Env):
         self._grasp_open  = action_cfg['grasp_values']['open']
         self._grasp_close = action_cfg['grasp_values']['close']
 
-        self._max_steps   = config['training']['max_episode_steps']
-        self._step_count  = 0
+        self._max_steps    = config['training']['max_episode_steps']
+        self._step_count   = 0
+        self._obj_start_pos = np.array(config['object']['pos'], dtype=np.float32)
 
         self.action_space = spaces.Box(
             low  = np.array([self._delta_low,  self._delta_low,  self._delta_low,  0.0], dtype=np.float32),
@@ -38,14 +39,14 @@ class ManipulationEnv(gym.Env):
 
         obs_dim = self._obs_dim()
         self.observation_space = spaces.Box(
-            low  = -np.inf,
-            high =  np.inf,
+            low   = -np.inf,
+            high  =  np.inf,
             shape = (obs_dim,),
             dtype = np.float32,
         )
 
     def reset(self, seed=None, options=None):
-        """Reset simulation and return initial observation and info dict."""
+        """Reset simulation, record object start position, return initial obs."""
         super().reset(seed=seed)
         self._sim.reset()
         self._step_count = 0
@@ -53,41 +54,50 @@ class ManipulationEnv(gym.Env):
         if self._logger:
             self._logger.reset()
 
-        obs  = self._sim.get_obs()
-        return self._flatten(obs), {}
+        obs = self._sim.get_obs()
+        self._obj_start_pos = obs['obj_pos'].copy()
+
+        return self._flatten(obs), {'TimeLimit.truncated': False}
 
     def step(self, action: np.ndarray):
         """Apply action, step simulation, compute reward, return gym tuple."""
-        action          = np.clip(action, self.action_space.low, self.action_space.high)
-        delta           = action[:3]
-        grasp_norm      = float(action[3])
-        grasp_cmd       = self._grasp_close if grasp_norm > 0.5 else self._grasp_open
+        action      = np.clip(action, self.action_space.low, self.action_space.high)
+        delta       = action[:3]
+        grasp_norm  = float(action[3])
+        grasp_cmd   = self._grasp_close if grasp_norm > 0.5 else self._grasp_open
 
-        obs             = self._sim.get_obs()
-        current_pos     = obs['ee_pos']
-        target_pos      = current_pos + delta
-        target_pose     = Pose(position=target_pos, quaternion=self._fixed_quat)
+        obs         = self._sim.get_obs()
+        target_pos  = obs['ee_pos'] + delta
+        target_pose = Pose(position=target_pos, quaternion=self._fixed_quat)
 
         self._sim.step(target_pose, grasp_cmd)
-        obs             = self._sim.get_obs()
+        obs         = self._sim.get_obs()
 
-        logged_action   = np.append(delta, grasp_norm)
-        reward_breakdown = self._reward_fn.compute(obs, logged_action)
-        reward          = float(reward_breakdown['total'])
+        logged_action = np.append(delta, grasp_norm)
+        breakdown     = self._reward_fn.compute(obs, logged_action, self._obj_start_pos)
+        reward        = float(breakdown['total'])
 
         self._step_count += 1
-        terminated       = reward_breakdown['place'] >= self._reward_fn.w_place_bonus
-        truncated        = self._step_count >= self._max_steps
+        terminated        = breakdown['success']
+        truncated         = self._step_count >= self._max_steps
 
         if self._logger:
-            self._logger.log_step(reward_breakdown, obs, logged_action)
+            self._logger.log_step(breakdown, obs, logged_action)
             if terminated or truncated:
                 self._logger.save()
 
         if self._renderer is not None:
             self._renderer.render()
 
-        info = {k: v for k, v in reward_breakdown.items() if k != 'total'}
+        info = {
+            'reach':   float(breakdown['reach']),
+            'grasp':   float(breakdown['grasp']),
+            'lift':    float(breakdown['lift']),
+            'place':   float(breakdown['place']),
+            'reg':     float(breakdown['reg']),
+            'push':    float(breakdown['push']),
+            'success': float(breakdown['success']),
+        }
 
         return self._flatten(obs), reward, terminated, truncated, info
 

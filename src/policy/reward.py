@@ -6,21 +6,22 @@ class RewardFunction:
         task_cfg   = config['task']
         reward_cfg = config['reward']
 
-        self.target_pos        = np.array(task_cfg['target_pos'])
-        self.table_height      = task_cfg['table_height']
-        self.lift_margin       = task_cfg['lift_margin']
-        self.reach_gate_dist   = task_cfg['reach_gate_dist']
+        self.target_pos         = np.array(task_cfg['target_pos'])
+        self.table_height       = task_cfg['table_height']
+        self.lift_margin        = task_cfg['lift_margin']
+        self.reach_gate_dist    = task_cfg['reach_gate_dist']
         self.place_success_dist = task_cfg['place_success_dist']
 
-        self.k_reach       = reward_cfg['k_reach']
-        self.w_grasp       = reward_cfg['w_grasp']
-        self.w_lift        = reward_cfg['w_lift']
-        self.w_place       = reward_cfg['w_place']
-        self.w_place_bonus = reward_cfg['w_place_bonus']
-        self.w_reg         = reward_cfg['w_reg']
+        self.k_reach        = reward_cfg['k_reach']
+        self.w_grasp        = reward_cfg['w_grasp']
+        self.w_lift         = reward_cfg['w_lift']
+        self.w_place        = reward_cfg['w_place']
+        self.w_place_bonus  = reward_cfg['w_place_bonus']
+        self.w_reg          = reward_cfg['w_reg']
+        self.w_push_penalty = reward_cfg['w_push_penalty']
 
-    def compute(self, obs: dict, action: np.ndarray) -> dict:
-        """Compute all reward components and return breakdown plus total."""
+    def compute(self, obs: dict, action: np.ndarray, obj_start_pos: np.ndarray) -> dict:
+        """Compute all reward components and return breakdown plus total and success flag."""
         ee_pos  = obs['ee_pos']
         obj_pos = obs['obj_pos']
         grasped = obs['grasped']
@@ -34,16 +35,20 @@ class RewardFunction:
         r_lift  = self._lift(grasped, obj_height)
         r_place = self._place(grasped, obj_height, place_dist)
         r_reg   = self._reg(action)
+        r_push  = self._push_penalty(grasped, obj_pos, obj_start_pos)
 
-        total = r_reach + r_grasp + r_lift + r_place + r_reg
+        total   = r_reach + r_grasp + r_lift + r_place + r_reg + r_push
+        success = bool(grasped and place_dist < self.place_success_dist)
 
         return {
-            'reach': r_reach,
-            'grasp': r_grasp,
-            'lift':  r_lift,
-            'place': r_place,
-            'reg':   r_reg,
-            'total': total,
+            'reach':   r_reach,
+            'grasp':   r_grasp,
+            'lift':    r_lift,
+            'place':   r_place,
+            'reg':     r_reg,
+            'push':    r_push,
+            'total':   total,
+            'success': success,
         }
 
     def _reach(self, reach_dist: float) -> float:
@@ -74,3 +79,10 @@ class RewardFunction:
     def _reg(self, action: np.ndarray) -> float:
         """Action regularisation penalty, always active."""
         return -self.w_reg * float(np.dot(action, action))
+
+    def _push_penalty(self, grasped: bool, obj_pos: np.ndarray, obj_start_pos: np.ndarray) -> float:
+        """Penalise XY displacement of object from start position when not grasped."""
+        if grasped:
+            return 0.0
+        displacement = np.linalg.norm(obj_pos[:2] - obj_start_pos[:2])
+        return -self.w_push_penalty * displacement

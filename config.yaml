@@ -55,6 +55,7 @@ reward:
   w_place:       20.0
   w_place_bonus: 100.0
   w_reg:         0.01
+  w_push_penalty: 5.0
 
 grasp_detection:
   contact_bodies:  [left_finger, right_finger]
@@ -75,11 +76,11 @@ rendering:
     lookat:    [0.3, 0.0, 0.4]
 
 training:
-  algorithm:        SAC
-  total_timesteps:  1_000_000
+  n_envs:           8
   max_episode_steps: 500
+  total_timesteps:  1_000_000
   batch_size:       256
-  buffer_size:      100_000
+  buffer_size:      1_000_000
   learning_rate:    3.0e-4
   gamma:            0.99
   tau:              0.005

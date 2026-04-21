@@ -50,7 +50,7 @@ class ImpedanceController:
     def _clip_torques(self, tau: np.ndarray) -> np.ndarray:
         """Clip torques to hardware limits."""
         tau_clipped = np.clip(tau, -self.tau_max, self.tau_max)
-        if not np.allclose(tau, tau_clipped):
-            exceeded = np.where(np.abs(tau) > self.tau_max)[0]
-            print(f"Warning: Torque limits exceeded on joints {exceeded}")
+        #if not np.allclose(tau, tau_clipped):    
+            #exceeded = np.where(np.abs(tau) > self.tau_max)[0]
+            #print(f"Warning: Torque limits exceeded on joints {exceeded}")
         return tau_clipped
