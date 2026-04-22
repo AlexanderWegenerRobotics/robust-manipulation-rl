@@ -138,8 +138,11 @@ def train(config_path: str = "config.yaml"):
 
     info_cb = InfoLoggingCallback(
         keys      = [
-            'reach', 'grasp_bonus', 'lift', 'place', 'success_bonus',
+            'reach', 'grasp_bonus', 'hold', 'lift', 'place', 'success_bonus',
             'drop_penalty', 'time', 'action_penalty',
+            'premature_close', 'premature_close_flag',
+            'gripper_switch', 'gripper_switch_flag',
+            'grasp_stable_count',
             'reach_dist', 'place_dist', 'obj_height',
             'grasped', 'new_grasp', 'lost_grasp',
             'reach_success', 'lift_success', 'place_success', 'success'

@@ -22,12 +22,15 @@ class ManipulationEnv(gym.Env):
         self._renderer    = None
         self._stage       = config['training'].get('stage', 'full')
 
-        action_cfg        = config['action']
-        self._delta_low   = action_cfg['delta_bounds'][0]
-        self._delta_high  = action_cfg['delta_bounds'][1]
-        self._fixed_quat  = np.array(action_cfg['fixed_quaternion'])
-        self._grasp_open  = action_cfg['grasp_values']['open']
-        self._grasp_close = action_cfg['grasp_values']['close']
+        action_cfg                  = config['action']
+        self._delta_low             = action_cfg['delta_bounds'][0]
+        self._delta_high            = action_cfg['delta_bounds'][1]
+        self._fixed_quat            = np.array(action_cfg['fixed_quaternion'])
+        self._grasp_open            = action_cfg['grasp_values']['open']
+        self._grasp_close           = action_cfg['grasp_values']['close']
+        self._gripper_close_thresh  = float(action_cfg.get('close_threshold', 0.65))
+        self._gripper_open_thresh   = float(action_cfg.get('open_threshold', 0.35))
+        self._gripper_is_closed     = False
 
         self._max_steps  = config['training']['max_episode_steps']
         self._step_count = 0
@@ -49,7 +52,8 @@ class ManipulationEnv(gym.Env):
         """Reset simulation and initialise reward state for a new episode."""
         super().reset(seed=seed)
         self._sim.reset()
-        self._step_count = 0
+        self._step_count       = 0
+        self._gripper_is_closed = False
 
         if self._logger:
             self._logger.reset()
@@ -61,10 +65,16 @@ class ManipulationEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         """Apply one policy action, step simulation, and return the gym transition."""
-        action      = np.clip(action, self.action_space.low, self.action_space.high)
-        delta       = action[:3]
-        grasp_norm  = float(action[3])
-        grasp_cmd   = self._grasp_close if grasp_norm > 0.5 else self._grasp_open
+        action     = np.clip(action, self.action_space.low, self.action_space.high)
+        delta      = action[:3]
+        grasp_norm = float(action[3])
+
+        if grasp_norm >= self._gripper_close_thresh:
+            self._gripper_is_closed = True
+        elif grasp_norm <= self._gripper_open_thresh:
+            self._gripper_is_closed = False
+
+        grasp_cmd   = self._grasp_close if self._gripper_is_closed else self._grasp_open
 
         obs         = self._sim.get_obs()
         target_pos  = obs['ee_pos'] + delta
@@ -90,26 +100,38 @@ class ManipulationEnv(gym.Env):
             self._renderer.render()
 
         info = {
-            'stage':          self._stage,
-            'reach':          float(breakdown['reach']),
-            'grasp_bonus':    float(breakdown['grasp_bonus']),
-            'lift':           float(breakdown['lift']),
-            'place':          float(breakdown['place']),
-            'success_bonus':  float(breakdown['success_bonus']),
-            'drop_penalty':   float(breakdown['drop_penalty']),
-            'time':           float(breakdown['time']),
-            'action_penalty': float(breakdown['action_penalty']),
-            'reach_dist':     float(breakdown['reach_dist']),
-            'place_dist':     float(breakdown['place_dist']),
-            'obj_height':     float(breakdown['obj_height']),
-            'grasped':        float(breakdown['grasped']),
-            'new_grasp':      float(breakdown['new_grasp']),
-            'lost_grasp':     float(breakdown['lost_grasp']),
-            'reach_success':  float(breakdown['reach_success']),
-            'lift_success':   float(breakdown['lift_success']),
-            'place_success':  float(breakdown['place_success']),
-            'success':        float(breakdown['success']),
-            'is_success':     bool(breakdown['success']),
+            'stage':                self._stage,
+            'reach':                float(breakdown['reach']),
+            'align_xy':             float(breakdown['align_xy']),
+            'align_z':              float(breakdown['align_z']),
+            'grasp_bonus':          float(breakdown['grasp_bonus']),
+            'hold':                 float(breakdown['hold']),
+            'lift':                 float(breakdown['lift']),
+            'place':                float(breakdown['place']),
+            'success_bonus':        float(breakdown['success_bonus']),
+            'drop_penalty':         float(breakdown['drop_penalty']),
+            'time':                 float(breakdown['time']),
+            'action_penalty':       float(breakdown['action_penalty']),
+            'premature_close':      float(breakdown['premature_close']),
+            'premature_close_flag': float(breakdown['premature_close_flag']),
+            'gripper_switch':       float(breakdown['gripper_switch']),
+            'gripper_switch_flag':  float(breakdown['gripper_switch_flag']),
+            'grasp_stable_count':   float(breakdown['grasp_stable_count']),
+            'reach_dist':           float(breakdown['reach_dist']),
+            'xy_dist':              float(breakdown['xy_dist']),
+            'z_err':                float(breakdown['z_err']),
+            'place_dist':           float(breakdown['place_dist']),
+            'obj_height':           float(breakdown['obj_height']),
+            'grasped':              float(breakdown['grasped']),
+            'new_grasp':            float(breakdown['new_grasp']),
+            'lost_grasp':           float(breakdown['lost_grasp']),
+            'reach_success':        float(breakdown['reach_success']),
+            'lift_success':         float(breakdown['lift_success']),
+            'micro_lift_success':   float(breakdown['micro_lift_success']),
+            'place_success':        float(breakdown['place_success']),
+            'success':              float(breakdown['success']),
+            'is_success':           bool(breakdown['success']),
+            'gripper_is_closed':    float(self._gripper_is_closed),
         }
 
         return self._flatten(obs), reward, terminated, truncated, info

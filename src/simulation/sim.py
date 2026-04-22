@@ -87,23 +87,27 @@ class Simulation:
                 mujoco.mj_step(self.mj_model, self.mj_data)
 
     def get_obs(self) -> dict:
-        """Return current observation including grasp state and object pose."""
+        """Return current observation including stricter grasp state and object pose."""
         with self._lock:
-            q        = self.mj_data.qpos[:ARM_DOF].copy()
-            qd       = self.mj_data.qvel[:ARM_DOF].copy()
-            tau      = self.mj_data.ctrl[:ARM_DOF].copy()
-            finger_l = self.mj_data.qpos[self._finger_idx_left]
-            finger_r = self.mj_data.qpos[self._finger_idx_right]
-            contact  = self._detect_contact()
+            q             = self.mj_data.qpos[:ARM_DOF].copy()
+            qd            = self.mj_data.qvel[:ARM_DOF].copy()
+            tau           = self.mj_data.ctrl[:ARM_DOF].copy()
+            finger_l      = self.mj_data.qpos[self._finger_idx_left]
+            finger_r      = self.mj_data.qpos[self._finger_idx_right]
+            left_contact, right_contact = self._detect_finger_contacts()
 
-        ee_pose            = self.kinematics.forward_kinematics(q)
-        obj_pos, obj_quat  = self.get_object_pose(self.obj_name)
+        ee_pose           = self.kinematics.forward_kinematics(q)
+        obj_pos, obj_quat = self.get_object_pose(self.obj_name)
 
-        gripper_width  = finger_l + finger_r
-        ee_below_top   = ee_pose.position[2] < (obj_pos[2] + self._obj_size_z * 0.8)
-        grasped        = (contact
-                         and ee_below_top
-                         and self._grasp_width_min <= gripper_width <= self._grasp_width_max)
+        gripper_width     = finger_l + finger_r
+        both_contacts     = left_contact and right_contact
+
+        obj_mid_z         = obj_pos[2]
+        grasp_band_half   = 0.35 * self._obj_size_z
+        ee_in_grasp_band  = (obj_mid_z - grasp_band_half) <= ee_pose.position[2] <= (obj_mid_z + grasp_band_half)
+        width_ok          = self._grasp_width_min <= gripper_width <= self._grasp_width_max
+
+        grasped           = both_contacts and ee_in_grasp_band and width_ok
 
         return {
             'q':             q,
@@ -114,7 +118,9 @@ class Simulation:
             'obj_pos':       obj_pos,
             'obj_quat':      obj_quat,
             'gripper_width': gripper_width,
-            'contact':       contact,
+            'contact':       float(left_contact or right_contact),
+            'left_contact':  float(left_contact),
+            'right_contact': float(right_contact),
             'grasped':       grasped,
             'target_pos':    np.array(self.config['task']['target_pos']),
         }
@@ -133,19 +139,27 @@ class Simulation:
     def dt(self) -> float:
         return self.mj_model.opt.timestep * self.steps_per_action
 
-    def _detect_contact(self) -> bool:
-        """Check if either finger body has contact with the box body this action step."""
-        box_id = self._box_body_id
+    def _detect_finger_contacts(self) -> tuple[bool, bool]:
+        """Check whether left and right finger bodies each contact the object."""
+        box_id        = self._box_body_id
+        left_contact  = False
+        right_contact = False
+
         for i in range(self.mj_data.ncon):
             c  = self.mj_data.contact[i]
             b1 = self.mj_model.geom_bodyid[c.geom1]
             b2 = self.mj_model.geom_bodyid[c.geom2]
-            left_touch   = (b1 == self._left_finger_id  or b2 == self._left_finger_id)
-            right_touch  = (b1 == self._right_finger_id or b2 == self._right_finger_id)
+
             box_involved = (b1 == box_id or b2 == box_id)
-            if box_involved and (left_touch or right_touch):
-                return True
-        return False
+            if not box_involved:
+                continue
+
+            if b1 == self._left_finger_id or b2 == self._left_finger_id:
+                left_contact = True
+            if b1 == self._right_finger_id or b2 == self._right_finger_id:
+                right_contact = True
+
+        return left_contact, right_contact
 
     def set_object_pose(self, name: str, pos: np.ndarray, quat: np.ndarray = np.array([1, 0, 0, 0])):
         """Set position and orientation of a named object in world space."""
