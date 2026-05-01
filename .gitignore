@@ -3,6 +3,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 checkpoints/
+backup/ 
 
 .DS_Store
 .vscode/

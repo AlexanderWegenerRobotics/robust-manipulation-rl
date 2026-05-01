@@ -70,10 +70,42 @@ def _make_model(config: dict, train_env, log_dir: Path):
     )
 
 
+def _resolve_resume_model_path(train_cfg: dict) -> str | None:
+    """Resolve the checkpoint path to resume from for the current stage."""
+    resume_model_path = train_cfg.get('resume_model_path', None)
+    stage             = train_cfg.get('stage', 'full')
+
+    if resume_model_path:
+        return resume_model_path
+
+    if stage == 'full':
+        default_path = Path("checkpoints") / "sac" / "reach_grasp" / "best" / "best_model.zip"
+        if default_path.exists():
+            return str(default_path)
+
+    return None
+
+
+def _resolve_resume_replay_buffer_path(train_cfg: dict) -> str | None:
+    """Resolve the replay buffer path to resume from for the current stage."""
+    resume_replay_buffer_path = train_cfg.get('resume_replay_buffer_path', None)
+    stage                     = train_cfg.get('stage', 'full')
+
+    if resume_replay_buffer_path:
+        return resume_replay_buffer_path
+
+    if stage == 'full':
+        default_path = Path("checkpoints") / "sac" / "reach_grasp" / "sac_manipulation_reach_grasp_final_replay_buffer.pkl"
+        if default_path.exists():
+            return str(default_path)
+
+    return None
+
+
 def _load_or_create_model(config: dict, train_env, log_dir: Path):
     """Load a saved SAC checkpoint if configured, otherwise create a fresh model."""
     train_cfg         = config['training']
-    resume_model_path = train_cfg.get('resume_model_path', None)
+    resume_model_path = _resolve_resume_model_path(train_cfg)
 
     if resume_model_path:
         print(f"Loading model from {resume_model_path}")
@@ -85,8 +117,8 @@ def _load_or_create_model(config: dict, train_env, log_dir: Path):
 
 def _try_load_replay_buffer(model: SAC, config: dict):
     """Load replay buffer if a configured path exists."""
-    train_cfg                  = config['training']
-    resume_replay_buffer_path  = train_cfg.get('resume_replay_buffer_path', None)
+    train_cfg                 = config['training']
+    resume_replay_buffer_path = _resolve_resume_replay_buffer_path(train_cfg)
 
     if resume_replay_buffer_path:
         path = Path(resume_replay_buffer_path)
@@ -121,7 +153,7 @@ def train(config_path: str = "config.yaml"):
     _try_load_replay_buffer(model, config)
 
     checkpoint_cb = CheckpointCallback(
-        save_freq          = 10_000,
+        save_freq          = train_cfg.get('checkpoint_freq', 10_000),
         save_path          = str(ckpt_dir),
         name_prefix        = f"sac_manipulation_{stage}",
         save_replay_buffer = True,
@@ -131,30 +163,32 @@ def train(config_path: str = "config.yaml"):
         eval_env,
         best_model_save_path = str(ckpt_dir / "best"),
         log_path             = str(log_dir / "eval"),
-        eval_freq            = 25_000,
+        eval_freq            = train_cfg.get('eval_freq', 25_000),
         n_eval_episodes      = 5,
         deterministic        = True,
     )
 
     info_cb = InfoLoggingCallback(
         keys      = [
-            'reach', 'grasp_bonus', 'hold', 'lift', 'place', 'success_bonus',
-            'drop_penalty', 'time', 'action_penalty',
+            'reach', 'align_xy', 'align_z', 'grasp_bonus', 'hold', 'lift', 'place',
+            'release_bonus', 'success_bonus', 'drop_penalty', 'time', 'action_penalty',
             'premature_close', 'premature_close_flag',
             'gripper_switch', 'gripper_switch_flag',
-            'grasp_stable_count',
-            'reach_dist', 'place_dist', 'obj_height',
+            'grasp_stable_count', 'place_stable_count',
+            'reach_dist', 'xy_dist', 'z_err', 'place_dist', 'obj_height',
             'grasped', 'new_grasp', 'lost_grasp',
-            'reach_success', 'lift_success', 'place_success', 'success'
+            'reach_success', 'lift_success', 'micro_lift_success',
+            'place_success', 'released_on_target', 'has_lifted',
+            'success', 'gripper_is_closed'
         ],
         log_every = 1000,
     )
 
     try:
         model.learn(
-            total_timesteps = train_cfg['total_timesteps'],
-            callback        = [checkpoint_cb, eval_cb, info_cb],
-            progress_bar    = True,
+            total_timesteps     = train_cfg['total_timesteps'],
+            callback            = [checkpoint_cb, eval_cb, info_cb],
+            progress_bar        = True,
             reset_num_timesteps = train_cfg.get('reset_num_timesteps', True),
         )
         final_path = ckpt_dir / f"sac_manipulation_{stage}_final"

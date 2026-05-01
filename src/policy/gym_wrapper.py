@@ -52,7 +52,7 @@ class ManipulationEnv(gym.Env):
         """Reset simulation and initialise reward state for a new episode."""
         super().reset(seed=seed)
         self._sim.reset()
-        self._step_count       = 0
+        self._step_count        = 0
         self._gripper_is_closed = False
 
         if self._logger:
@@ -108,15 +108,17 @@ class ManipulationEnv(gym.Env):
             'hold':                 float(breakdown['hold']),
             'lift':                 float(breakdown['lift']),
             'place':                float(breakdown['place']),
+            'release_bonus':        float(breakdown['release_bonus']),
             'success_bonus':        float(breakdown['success_bonus']),
             'drop_penalty':         float(breakdown['drop_penalty']),
             'time':                 float(breakdown['time']),
             'action_penalty':       float(breakdown['action_penalty']),
             'premature_close':      float(breakdown['premature_close']),
-            'premature_close_flag': float(breakdown['premature_close_flag']),
+            'premature_close_flag': float(breakdown['premature_close_flag']),   
             'gripper_switch':       float(breakdown['gripper_switch']),
             'gripper_switch_flag':  float(breakdown['gripper_switch_flag']),
             'grasp_stable_count':   float(breakdown['grasp_stable_count']),
+            'place_stable_count':   float(breakdown['place_stable_count']),
             'reach_dist':           float(breakdown['reach_dist']),
             'xy_dist':              float(breakdown['xy_dist']),
             'z_err':                float(breakdown['z_err']),
@@ -129,6 +131,8 @@ class ManipulationEnv(gym.Env):
             'lift_success':         float(breakdown['lift_success']),
             'micro_lift_success':   float(breakdown['micro_lift_success']),
             'place_success':        float(breakdown['place_success']),
+            'released_on_target':   float(breakdown['released_on_target']),
+            'has_lifted':           float(breakdown['has_lifted']),
             'success':              float(breakdown['success']),
             'is_success':           bool(breakdown['success']),
             'gripper_is_closed':    float(self._gripper_is_closed),
